@@ -120,6 +120,8 @@ class PIDControlNode(Node):
         self.current_speed = self.base_speed
         self.target_gap_center = 0.0  # Angle to center of chosen gap
         self.gap_dist = 0.0
+
+        self.gap_lost = False
         
         self.odom_params = {
             'lt': 0,
@@ -137,8 +139,7 @@ class PIDControlNode(Node):
 
     def drive_callback(self):
         """Main control loop - publishes drive commands"""
-        msg = AckermannDriveStamped()
-        
+        msg = AckermannDriveStamped()        
         # Calculate steering using PID control
         current_time = self.get_clock().now().nanoseconds / 1e9
         
@@ -199,6 +200,9 @@ class PIDControlNode(Node):
         # Publish command
         msg.drive.speed = self.current_speed
         msg.drive.steering_angle = self.current_steering_angle
+
+        if self.gap_lost:
+            msg.drive.speed = 0.0
         self.publisher_.publish(msg)
         
         # Debug output every 20 cycles (1 second)
@@ -246,10 +250,16 @@ class PIDControlNode(Node):
         """Process lidar data for gap detection"""
         # Find all valid gaps
         gaps = self.find_gaps(msg.ranges, msg.angle_min, msg.angle_increment)
+        if len(gaps) < 1:
+            self.gap_lost = True
         try: 
             # Choose the best gap (prioritizing left)
             chosen_gap, self.gap_uncertainty = self.choose_best_gap(gaps)
             self.current_gap = chosen_gap
+            if chosen_gap['distance'] < 0.3 or len(gaps) < 1:
+                self.gap_lost = True
+            else:
+                self.gap_lost = False
 
             # OPTIONAL: guard when no gap selected
             self.current_gap_wr = chosen_gap['width_ratio'] if chosen_gap else 1.0
@@ -271,7 +281,7 @@ class PIDControlNode(Node):
                 self.min_distance_ahead = float('inf')
 
             self.publish_gap_marker(chosen_gap, msg.header.frame_id)
-        except: pass
+        except Exception as e: pass # self.get_logger().error(str(e))
 
     def find_gaps(self, ranges, angle_min, angle_increment):
         """Find all navigable gaps in the lidar data (forward FOV only)"""
