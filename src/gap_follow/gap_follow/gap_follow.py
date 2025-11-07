@@ -6,6 +6,8 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from math import cos, sin, pi, log, exp, atan2
 from dataclasses import dataclass
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import Point
 
 DEBUG = False
 
@@ -42,6 +44,12 @@ class PIDControlNode(Node):
                 ('gap_follow_lookahead_distance', 3.0),
                 ('gap_follow_gap_detection_distance', 2.5),
                 ('gap_follow_aim_offset', -0.15),
+                # NEW: forward FOV half-angle (radians). e.g., pi/2 means ±90°
+                ('gap_follow_forward_fov', 1.5707963267948966),
+                # Jitter handling params
+                ('gap_follow_jitter_tau', 0.1),       # seconds, EMA time constant for gap angle jitter
+                ('gap_follow_jitter_weight', 0.0),    # [0..1], how strongly jitter reduces speed
+                ('gap_follow_jitter_norm', 3.0),      # rad/s at which jitter reduction saturates
             ]
         )
 
@@ -64,9 +72,13 @@ class PIDControlNode(Node):
         self.gap_detection_distance = self.get_parameter('gap_follow_gap_detection_distance').get_parameter_value().double_value
 
         self.aim_offset = self.get_parameter('gap_follow_aim_offset').get_parameter_value().double_value
-        
-        
-       
+        # NEW: store forward FOV
+        self.forward_fov = self.get_parameter('gap_follow_forward_fov').get_parameter_value().double_value
+        # Jitter params
+        self.jitter_tau = self.get_parameter('gap_follow_jitter_tau').get_parameter_value().double_value
+        self.jitter_weight = self.get_parameter('gap_follow_jitter_weight').get_parameter_value().double_value
+        self.jitter_norm = self.get_parameter('gap_follow_jitter_norm').get_parameter_value().double_value
+
         self.publisher_ = self.create_publisher(AckermannDriveStamped, 'drive', 10)
         self.lidar_sub = self.create_subscription(
             LaserScan,
@@ -74,6 +86,8 @@ class PIDControlNode(Node):
             self.laser_callback,
             10
         )
+
+        self.marker_pub = self.create_publisher(Marker, 'gap_marker', 1)
 
         self.car = Car(
             velocity=0.0,
@@ -90,6 +104,10 @@ class PIDControlNode(Node):
         self.last_error = 0.0
         self.last_time = None
 
+        # Jitter state
+        self.gap_jitter = 0.0          # EMA of angular velocity (rad/s)
+        self.last_gap_angle = None     # last target_gap_center angle
+        
         self.current_gap_wr = 0.4
         
         # Gap detection parameters
@@ -129,19 +147,16 @@ class PIDControlNode(Node):
             
             # Error is the angle to center of target gap
             # Should calculate aim offset here.
-            
-            gap_rotation = self.current_gap['edge_rotation'] - pi/2
-            # gap_rotation = rad2deg(gap_rotation)
-            lun = 1.0
+            # SAFE access to gap rotation
+            gap_rotation = 0.0
             try:
-                lun = log(self.gap_uncertainty)
-            except: pass
-
-            self.get_logger().info(str(lun))
+                gap_rotation = self.current_gap['edge_rotation'] - pi/2
+            except Exception:
+                pass
 
             # error = self.target_gap_center + self.aim_offset # Aim a little right
-            error = self.target_gap_center + self.aim_offset
-            # error = self.target_gap_center - lun * gap_rotation
+            # error = self.target_gap_center + self.aim_offset
+            error = self.target_gap_center - 0.3 * gap_rotation
 
             # PID calculation
             self.error_integral += error * dt
@@ -162,7 +177,22 @@ class PIDControlNode(Node):
             self.last_error = error
             
         self.last_time = current_time
-        
+
+        # Update jitter EMA based on change in selected gap angle
+        if self.last_gap_angle is not None:
+            dt_j = max(1e-3, (self.get_clock().now().nanoseconds / 1e9) - current_time + (current_time - self.last_time if self.last_time else 0.0))
+            # Use the computed dt from control loop when available
+            try:
+                dt_j = max(1e-3, current_time - (self._last_jitter_time if hasattr(self, '_last_jitter_time') else current_time))
+            except Exception:
+                dt_j = 0.05
+            dtheta = abs(self.target_gap_center - self.last_gap_angle)
+            omega = dtheta / max(1e-3, (current_time - (self._last_jitter_time if hasattr(self, '_last_jitter_time') else current_time) + 1e-3))
+            alpha_j = 1.0 - exp(-max(1e-3, (current_time - (self._last_jitter_time if hasattr(self, '_last_jitter_time') else current_time))) / max(1e-3, self.jitter_tau))
+            self.gap_jitter = self.gap_jitter + alpha_j * (omega - self.gap_jitter)
+        self.last_gap_angle = self.target_gap_center
+        self._last_jitter_time = current_time
+
         # Speed control based on steering angle and proximity to walls
         self.calculate_speed()
         
@@ -194,127 +224,127 @@ class PIDControlNode(Node):
         exp_fn = 2.0 - (1.0 / exp(gap_angle))
         steering_factor = 1.0 / exp_fn
         # Speed reduction based on proximity to walls
-        if hasattr(self, 'min_distance_ahead'):
-            distance_factor = min(1.0, max(0.3, self.min_distance_ahead / 1.5))
-        else:
-            distance_factor = 1.0
+        distance_factor = 1.0
+        try:
+            gap_dist = self.current_gap['distance']
+            distance_factor = (gap_dist / self.gap_detection_distance)
+        except: pass
         
         # Combine factors
-        speed_factor = min(steering_factor, distance_factor) 
-        # - log(self.gap_uncertainty)
-        uncertainty_reduction = 0.0
-        try: uncertainty_reduction = 0.00 * log(uncertainty) * self.base_speed
-        except: pass
-        self.current_speed = self.base_speed * speed_factor
+        speed_factor = min(steering_factor, distance_factor)
+
+        # Jitter factor: higher jitter => lower speed
+        jn = self.gap_jitter / max(1e-6, self.jitter_norm)  # normalize to [0..~]
+        jn = max(0.0, min(1.0, jn))                         # clamp to [0,1]
+        jitter_factor = 1.0 - self.jitter_weight * jn       # [1 - weight, 1]
+        jitter_factor = max(0.3, jitter_factor)             # keep some minimum factor
+
+        # Apply factors and clamp to min_speed
+        self.current_speed = max(self.min_speed, self.base_speed * speed_factor * jitter_factor)
 
     def laser_callback(self, msg):
         """Process lidar data for gap detection"""
         # Find all valid gaps
         gaps = self.find_gaps(msg.ranges, msg.angle_min, msg.angle_increment)
-        
-        # Choose the best gap (prioritizing left)
-        chosen_gap, self.gap_uncertainty = self.choose_best_gap(gaps)
-        self.current_gap = chosen_gap
-        
-        self.current_gap_wr = chosen_gap['width_ratio']
-        if chosen_gap:
-            self.target_gap_center = chosen_gap['center_angle']
-        else:
-            # No valid gaps - emergency straight or slight left
-            self.target_gap_center = 0.1  # Slight left bias
-        
-        # Calculate minimum distance ahead for speed control
-        forward_ranges = []
-        for i, r in enumerate(msg.ranges):
-            angle = msg.angle_min + i * msg.angle_increment
-            if abs(angle) < pi/4 and r > 0.1:
-                forward_ranges.append(r)
-                
-        if forward_ranges:
-            self.min_distance_ahead = min(forward_ranges)
-        else:
-            self.min_distance_ahead = float('inf')
+        try: 
+            # Choose the best gap (prioritizing left)
+            chosen_gap, self.gap_uncertainty = self.choose_best_gap(gaps)
+            self.current_gap = chosen_gap
+
+            # OPTIONAL: guard when no gap selected
+            self.current_gap_wr = chosen_gap['width_ratio'] if chosen_gap else 1.0
+            if chosen_gap:
+                self.target_gap_center = chosen_gap['center_angle']
+            else:
+                self.target_gap_center = 0.1  # Slight left bias
+            
+            # Calculate minimum distance ahead for speed control
+            forward_ranges = []
+            for i, r in enumerate(msg.ranges):
+                angle = msg.angle_min + i * msg.angle_increment
+                if abs(angle) < pi/4 and r > 0.1:
+                    forward_ranges.append(r)
+                    
+            if forward_ranges:
+                self.min_distance_ahead = min(forward_ranges)
+            else:
+                self.min_distance_ahead = float('inf')
+
+            self.publish_gap_marker(chosen_gap, msg.header.frame_id)
+        except: pass
 
     def find_gaps(self, ranges, angle_min, angle_increment):
-        """Find all navigable gaps in the lidar data"""
+        """Find all navigable gaps in the lidar data (forward FOV only)"""
         gaps = []
-        
-        # Convert lidar data to obstacle points
         obstacles = []
         for i, r in enumerate(ranges):
             if 0.1 < r < self.gap_detection_distance:
                 angle = angle_min + i * angle_increment
+                # NEW: ignore points outside forward FOV
+                if abs(angle) > self.forward_fov:
+                    continue
                 x = r * cos(angle)
                 y = r * sin(angle)
                 obstacles.append((x, y, angle, r))
-        
+
         if len(obstacles) < 2:
-            # No obstacles or very few - consider everything a gap
+            # Fallback gap within forward FOV only
             return [{
-                'left_angle': -pi/3,
-                'right_angle': pi/3,
+                'left_angle': -self.forward_fov,
+                'right_angle': self.forward_fov,
                 'center_angle': 0.0,
-                'width': 2*pi/3,
-                'angular_width': 2*pi/3,
-                'width_ratio': 0.0,          # default to 0 for consistency
-                'edge_rotation': 0.0,        # straight ahead by convention
+                'width': 2 * self.forward_fov * (self.gap_detection_distance * 0.5),
+                'angular_width': 2 * self.forward_fov,
+                'width_ratio': 0.0,
+                'edge_rotation': 0.0,
+                'distance': self.gap_detection_distance * 0.5,
                 'score': 1.0
             }]
-        
-        # Sort obstacles by angle
+
+        # Sort obstacles by angle (ascending)
         obstacles.sort(key=lambda obs: obs[2])
-        
-        # Find gaps between consecutive obstacles
-        for i in range(len(obstacles)):
+
+        # Find gaps between consecutive obstacles ONLY (no wrap-around)
+        for i in range(len(obstacles) - 1):
             current_obs = obstacles[i]
-            next_obs = obstacles[(i + 1) % len(obstacles)]
-            
-            # Handle wrap-around case
-            if i == len(obstacles) - 1:
-                # Gap from last obstacle to first obstacle (wrapping around)
-                if current_obs[2] < next_obs[2]:
-                    continue  # Skip if not actually wrapping
-                left_angle = current_obs[2]
-                right_angle = next_obs[2] + 2*pi
-            else:
-                left_angle = current_obs[2]
-                right_angle = next_obs[2]
-            
+            next_obs = obstacles[i + 1]
+
+            left_angle = current_obs[2]
+            right_angle = next_obs[2]
+
             # Calculate gap properties
             gap_angular_width = abs(right_angle - left_angle)
             gap_center_angle = (left_angle + right_angle) / 2.0
-            
-            # Normalize center angle to [-pi, pi]
-            while gap_center_angle > pi:
-                gap_center_angle -= 2*pi
-            while gap_center_angle < -pi:
-                gap_center_angle += 2*pi
-            
-            # Calculate physical gap width at a reference distance
-            reference_distance = min(current_obs[3], next_obs[3]) if i < len(obstacles) - 1 else current_obs[3]
+
+            # Ensure center within forward FOV
+            if abs(gap_center_angle) > self.forward_fov:
+                continue
+
+            # Reference distance and width
+            reference_distance = min(current_obs[3], next_obs[3])
             gap_physical_width = reference_distance * gap_angular_width
 
-            # Compute rotation (angle from left edge to right edge in Cartesian space)
+            # Edge rotation in Cartesian space
             left_x, left_y = current_obs[0], current_obs[1]
             right_x, right_y = next_obs[0], next_obs[1]
             edge_rotation = atan2(right_y - left_y, right_x - left_x)
-        
+
             width_ratio = gap_angular_width / gap_physical_width if gap_physical_width > 0 else 0.0
 
             # Only consider gaps that are wide enough and not too narrow
             if gap_physical_width > self.min_gap_width and gap_angular_width > 0.1:
                 gaps.append({
                     'left_angle': left_angle,
-                    'right_angle': right_angle if i < len(obstacles) - 1 else right_angle - 2*pi,
+                    'right_angle': right_angle,
                     'center_angle': gap_center_angle,
                     'width': gap_physical_width,
                     'angular_width': gap_angular_width,
                     'width_ratio': width_ratio,
-                    'edge_rotation': edge_rotation,   # NEW: rotation of edge line (radians, [-pi, pi])
+                    'edge_rotation': edge_rotation,
                     'distance': reference_distance,
                     'score': 0.0
                 })
-        
+
         return gaps
 
     def choose_best_gap(self, gaps):
@@ -403,14 +433,42 @@ class PIDControlNode(Node):
         
         # Combine all scores with weights
         total_score = (
-            0.3 * width_score +
+            0.05 * width_score +
             1.1 * direction_score +  # Highest weight on direction
-            0.15 * forward_score +
+            0.1 * forward_score +
             0.1 * distance_score +
-            0.05 * angular_bonus
+            0.05* angular_bonus
         )
         
         return total_score
+
+    def publish_gap_marker(self, gap, frame_id):
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'gap_follow'
+        marker.id = 0
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD if gap else Marker.DELETE
+        marker.scale.x = 0.1
+        marker.color.r = 0.1
+        marker.color.g = 1.0
+        marker.color.b = 0.1
+        marker.color.a = 1.0
+        if gap:
+            ref_dist = gap.get('distance', self.lookahead_distance)
+            left_angle = gap['left_angle']
+            right_angle = gap['right_angle']
+            p_left = Point()
+            p_left.x = ref_dist * cos(left_angle)
+            p_left.y = ref_dist * sin(left_angle)
+            p_left.z = 0.0
+            p_right = Point()
+            p_right.x = ref_dist * cos(right_angle)
+            p_right.y = ref_dist * sin(right_angle)
+            p_right.z = 0.0
+            marker.points = [p_left, p_right]
+        self.marker_pub.publish(marker)
 
 @dataclass
 class Car:

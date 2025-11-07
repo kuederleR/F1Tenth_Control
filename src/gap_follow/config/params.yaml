@@ -3,19 +3,21 @@ gap_follow_node:
   ros__parameters:
     ego_car_width: 0.3 # m
 
+    gap_follow_publish_topic: "/drive"
+
     # Gap Follow Params
     gap_follow_base_speed: 7.0
     gap_follow_min_speed: 0.4
     gap_follow_max_steering_angle: 1.0
 
-    gap_follow_kp: 0.8
+    gap_follow_kp: 1.4
     gap_follow_ki: 0.005
     gap_follow_kd: 0.02
 
     gap_follow_lookahead_distance: 3.0
     gap_follow_gap_detection_distance: 2.5
 
-    gap_follow_selection_multiplier: 1.5
+    gap_follow_selection_multiplier: 2.0
 
     # gap_follow_aim_offset: -0.15
     gap_follow_aim_offset: -0.15
@@ -28,6 +30,6 @@ emergency_brake_node:
     scan_topic: "/scan"
 
     safety_publish_topic: "/safety_node"
-    gap_follow_publish_topic: "/drive"
+    
     
     acceptable_ttc: 0.5 # s
