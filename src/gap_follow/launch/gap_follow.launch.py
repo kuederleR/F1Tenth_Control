@@ -11,12 +11,12 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # Node(
-        #     package='gap_follow',
-        #     executable='gap_follow',
-        #     name='gap_follow_node',
-        #     parameters=[params_file]
-        # ),
+        Node(
+            package='gap_follow',
+            executable='gap_follow',
+            name='gap_follow_node',
+            parameters=[params_file]
+        ),
         Node(
             package='gap_follow',
             executable='emergency_brake',
