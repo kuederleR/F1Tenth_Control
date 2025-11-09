@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 
+from sensor_msgs.msg import Joy
+
 DEBUG = False
 
 """
@@ -50,6 +52,7 @@ class PIDControlNode(Node):
                 ('gap_follow_jitter_tau', 0.1),       # seconds, EMA time constant for gap angle jitter
                 ('gap_follow_jitter_weight', 0.0),    # [0..1], how strongly jitter reduces speed
                 ('gap_follow_jitter_norm', 3.0),      # rad/s at which jitter reduction saturates
+                ('deadman_enable', False),      # Enable the deadman switch
             ]
         )
 
@@ -79,11 +82,20 @@ class PIDControlNode(Node):
         self.jitter_weight = self.get_parameter('gap_follow_jitter_weight').get_parameter_value().double_value
         self.jitter_norm = self.get_parameter('gap_follow_jitter_norm').get_parameter_value().double_value
 
+        self.deadman_enable = self.get_parameter('deadman_enable').get_parameter_value().bool_value
+
         self.publisher_ = self.create_publisher(AckermannDriveStamped, 'drive', 10)
         self.lidar_sub = self.create_subscription(
             LaserScan,
             'scan',
             self.laser_callback,
+            10
+        )
+
+        self.joy_sub = self.create_subscription(
+            Joy, 
+            'joy',
+            self.joy_callback,
             10
         )
 
@@ -133,9 +145,25 @@ class PIDControlNode(Node):
         
         # Debug counters
         self.debug_counter = 0
+
+        self.deadman_pressed = False
+        self.last_deadman_time = self.get_clock().now()
         
         # Control timer
         self.drive_timer = self.create_timer(0.05, self.drive_callback)  # 20Hz control
+
+    def get_time_s(self):
+        return self.get_clock().now().nanoseconds / 1e9 
+
+    def joy_callback(self, msg):
+        if self.deadman_enable:
+            r1_value = msg.buttons[5]
+            if r1_value > 0:
+                self.last_deadman_time = self.get_time_s()
+
+    def get_deadman_state(self):
+        return self.get_time_s() < self.last_deadman_time + 0.5
+
 
     def drive_callback(self):
         """Main control loop - publishes drive commands"""
@@ -200,11 +228,17 @@ class PIDControlNode(Node):
         # Publish command
         msg.drive.speed = self.current_speed
         msg.drive.steering_angle = self.current_steering_angle
+        if not self.deadman_enable:
+            if self.gap_lost:
+                msg.drive.speed = 0.0
+                self.get_logger().info("Durrrrrr")
+            self.publisher_.publish(msg)
+        elif self.get_deadman_state():
+            if self.gap_lost:
+                msg.drive.speed = 0.0
+                self.get_logger().info("Durrrrrr")
+            self.publisher_.publish(msg)
 
-        if self.gap_lost:
-            msg.drive.speed = 0.0
-            self.get_logger().info("Durrrrrr")
-        self.publisher_.publish(msg)
         
         # Debug output every 20 cycles (1 second)
         self.debug_counter += 1
