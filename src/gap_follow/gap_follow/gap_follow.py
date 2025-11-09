@@ -147,7 +147,7 @@ class PIDControlNode(Node):
         self.debug_counter = 0
 
         self.deadman_pressed = False
-        self.last_deadman_time = self.get_clock().now()
+        self.last_deadman_time = 0
         
         # Control timer
         self.drive_timer = self.create_timer(0.05, self.drive_callback)  # 20Hz control
