@@ -230,12 +230,12 @@ class PIDControlNode(Node):
         msg.drive.steering_angle = self.current_steering_angle
         if not self.deadman_enable:
             if self.gap_lost:
-                msg.drive.speed = 0.0
+                # msg.drive.speed = 0.0
                 self.get_logger().info("Durrrrrr")
             self.publisher_.publish(msg)
         elif self.get_deadman_state():
             if self.gap_lost:
-                msg.drive.speed = 0.0
+                # msg.drive.speed = 0.0
                 self.get_logger().info("Durrrrrr")
             self.publisher_.publish(msg)
 
