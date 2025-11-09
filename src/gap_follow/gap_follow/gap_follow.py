@@ -162,7 +162,7 @@ class PIDControlNode(Node):
                 self.last_deadman_time = self.get_time_s()
 
     def get_deadman_state(self):
-        return self.get_time_s() < self.last_deadman_time + 0.5
+        return self.get_time_s() < self.last_deadman_time + 0.25
 
 
     def drive_callback(self):
