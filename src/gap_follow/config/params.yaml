@@ -6,7 +6,7 @@ gap_follow_node:
     gap_follow_publish_topic: "/drive"
 
     # Gap Follow Params
-    gap_follow_base_speed: 7.0
+    gap_follow_base_speed: 2.0
     gap_follow_min_speed: 0.4
     gap_follow_max_steering_angle: 1.0
 
