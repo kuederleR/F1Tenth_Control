@@ -22,7 +22,7 @@ def generate_launch_description():
 
     f1tenth_stack_launch_file = os.path.join(
         f1tenth_stack_dir,
-        'launch'
+        'launch/'
         'bringup_launch.py'
     )
 
@@ -32,7 +32,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         f1tenth_stack_launch,
-        
+
         Node(
             package='gap_follow',
             executable='gap_follow',
