@@ -6,7 +6,7 @@ gap_follow_node:
     gap_follow_publish_topic: "/drive"
 
     # Gap Follow Params
-    gap_follow_base_speed: 2.0
+    gap_follow_base_speed: 4.0
     gap_follow_min_speed: 0.4
     gap_follow_max_steering_angle: 1.0
 
@@ -14,7 +14,7 @@ gap_follow_node:
     gap_follow_ki: 0.01
     gap_follow_kd: 0.05
 
-    gap_follow_lookahead_distance: 6.0
+    gap_follow_lookahead_distance: 10.0
     gap_follow_gap_detection_distance: 2.5
 
     gap_follow_selection_multiplier: 2.0
