@@ -15,7 +15,7 @@ gap_follow_node:
     gap_follow_kd: 0.05
 
     gap_follow_lookahead_distance: 6.0
-    gap_follow_gap_detection_distance: 3.5
+    gap_follow_gap_detection_distance: 2.5
 
     gap_follow_selection_multiplier: 2.0
 
