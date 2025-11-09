@@ -203,6 +203,7 @@ class PIDControlNode(Node):
 
         if self.gap_lost:
             msg.drive.speed = 0.0
+            self.get_logger().info("Durrrrrr")
         self.publisher_.publish(msg)
         
         # Debug output every 20 cycles (1 second)
