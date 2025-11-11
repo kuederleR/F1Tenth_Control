@@ -377,7 +377,7 @@ class PIDControlNode(Node):
             width_ratio = gap_angular_width / gap_physical_width if gap_physical_width > 0 else 0.0
 
             # Only consider gaps that are wide enough and not too narrow
-            if gap_physical_width > self.min_gap_width and gap_angular_width > 0.1:
+            if gap_physical_width > self.min_gap_width and gap_angular_width > 0.07:
                 gaps.append({
                     'left_angle': left_angle,
                     'right_angle': right_angle,
