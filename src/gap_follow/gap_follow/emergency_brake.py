@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 import math
 
 
@@ -28,6 +29,8 @@ class KeyboardControlNode(Node):
             self.laser_callback,
             10
         )
+
+        self.info_publisher = self.create_publisher(String, 'emergency_brake_info', 10)
 
         self.acceptable_ttc = self.get_parameter('acceptable_ttc').get_parameter_value().double_value
 
@@ -98,11 +101,19 @@ class KeyboardControlNode(Node):
         return index
 
     def timer_callback(self):
+
         if self.safety_brake_flag:
+                info_msg = String()
+                info_msg.data = 'Emergency Brake Activated!'
+                self.info_publisher.publish(info_msg)
                 self.speed = 0.0
                 msg = AckermannDriveStamped()
                 msg.drive.steering_angle = self.steering_angle
                 self.publisher_.publish(msg)
+        else:
+            info_msg = String()
+            info_msg.data = 'No Emergency Brake.'
+            self.info_publisher.publish(info_msg)
 
 def main(args=None):
     rclpy.init(args=args)
