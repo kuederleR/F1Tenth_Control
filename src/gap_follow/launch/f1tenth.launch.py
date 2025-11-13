@@ -39,4 +39,10 @@ def generate_launch_description():
             name='gap_follow_node',
             parameters=[params_file, additional_gap_follow_params]
         ),
+        Node(
+            package='gap_follow',
+            executable='emergency_brake',
+            name='emergency_brake_node',
+            parameters=[params_file]
+        ),
     ])
