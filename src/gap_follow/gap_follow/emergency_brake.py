@@ -67,7 +67,8 @@ class KeyboardControlNode(Node):
                 velocity = dx / dt
                 ttc = laser_dist / velocity
 
-            except:
+            except Exception as e:
+                raise e
                 ttc = -1
             self.ttc = ttc
             self.safety_brake_flag = ttc > 0 and ttc < self.acceptable_ttc
