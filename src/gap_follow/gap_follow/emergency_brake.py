@@ -82,7 +82,7 @@ class KeyboardControlNode(Node):
             angle = self.angle(msg.angle_min, msg.angle_max, i, len(ranges))
             y_dist = ranges[i] * math.sin(angle)
             x_dist = ranges[i] * math.cos(angle)
-            if -self.vehicle_width_m / 2 < y_dist and y_dist < self.vehicle_width_m / 2:
+            if -self.vehicle_width_m / 2 < y_dist and y_dist < self.vehicle_width_m / 2 and x_dist > 0.1:
                 count_fwd += 1
                 fwd_ranges.append(i)
                 if ranges[i] < min_dist:
