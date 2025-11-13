@@ -39,6 +39,8 @@ class KeyboardControlNode(Node):
         self.speed = 0.0
         self.steering_angle = 0.0
 
+        self.ttc = 0.0
+
         self.speed_odom = 0.0
         self.safety_brake_flag = 0.0
 
@@ -67,7 +69,7 @@ class KeyboardControlNode(Node):
 
             except:
                 ttc = -1
-
+            self.ttc = ttc
             self.safety_brake_flag = ttc > 0 and ttc < self.acceptable_ttc
 
         self.ttc_params['last_scan_dist'] = laser_dist
@@ -102,7 +104,7 @@ class KeyboardControlNode(Node):
 
     def timer_callback(self):
         info_msg = String()
-        info_msg.data = f'Last Scan Distance: {self.ttc_params["last_scan_dist"]}, Safety Brake: {self.safety_brake_flag}'
+        info_msg.data = f'Last Scan Distance: {self.ttc_params["last_scan_dist"]}, Safety Brake: {self.safety_brake_flag}, TTC: {self.ttc}'
         self.info_publisher.publish(info_msg)
         if self.safety_brake_flag:
                 
