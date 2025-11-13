@@ -101,19 +101,15 @@ class KeyboardControlNode(Node):
         return index
 
     def timer_callback(self):
-
+        info_msg = String()
+        info_msg.data = f'Last Scan Distance: {self.ttc_params["last_scan_dist"]}, Safety Brake: {self.safety_brake_flag}'
+        self.info_publisher.publish(info_msg)
         if self.safety_brake_flag:
-                info_msg = String()
-                info_msg.data = 'Emergency Brake Activated!'
-                self.info_publisher.publish(info_msg)
+                
                 self.speed = 0.0
                 msg = AckermannDriveStamped()
                 msg.drive.steering_angle = self.steering_angle
                 self.publisher_.publish(msg)
-        else:
-            info_msg = String()
-            info_msg.data = 'No Emergency Brake.'
-            self.info_publisher.publish(info_msg)
 
 def main(args=None):
     rclpy.init(args=args)
