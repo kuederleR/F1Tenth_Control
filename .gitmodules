@@ -1,0 +1,3 @@
+[submodule "Ros2_robot_stuff"]
+	path = Ros2_robot_stuff
+	url = https://github.com/lackn1-stack/Ros2_robot_stuff.git
