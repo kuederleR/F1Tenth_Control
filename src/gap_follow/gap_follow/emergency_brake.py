@@ -54,7 +54,6 @@ class KeyboardControlNode(Node):
         self.timer = self.create_timer(0.1, self.timer_callback)
 
     def laser_callback(self, msg):
-        self.get_logger().info('Laser callback triggered')
         laser_time = self.get_clock().now().nanoseconds
         laser_dist = self.fwd_range(msg)
         if self.ttc_params['last_scan_ns'] >= 0:
